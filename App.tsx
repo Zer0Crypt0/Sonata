@@ -106,11 +106,18 @@ export default function App() {
     setQueue(context);
     setResolving(true);
     try {
+      console.log('[play] resolve başlıyor:', track.id); // GEÇİCİ tanı
       const src = await resolveAudio(track); // sağlayıcı zinciri içinde failover
+      console.log('[play] resolve tamam:', src.uri.slice(0, 600)); // GEÇİCİ tanı (tam URL)
+      const probe = await fetch(src.uri, { headers: { Range: 'bytes=0-1023' } }); // GEÇİCİ tanı
+      console.log('[play] probe status:', probe.status); // GEÇİCİ tanı
       await player.loadAndPlay(src);
+      console.log('[play] loadAndPlay tamam'); // GEÇİCİ tanı
       setPlaying(true);
       await recordPlay(track); // başarılı oynatma → geçmişe yaz (öneri/radyo beslenir)
+      console.log('[play] recordPlay tamam'); // GEÇİCİ tanı
     } catch (e) {
+      console.log('[play] HATA:', String(e instanceof Error ? e.message : e)); // GEÇİCİ tanı
       setPlaying(false);
       Alert.alert('Çalınamadı', String(e instanceof Error ? e.message : e));
     } finally {
@@ -146,18 +153,30 @@ export default function App() {
     return () => clearInterval(timer);
   }, []);
 
+  // Neden: her arama bir sıra numarası + iptal denetleyicisi alır — yeni sorgu
+  // eskisini iptal eder; geç gelen eski cevap ekrana yazılmaz ("son gelen kazanır").
+  const searchSeqRef = useRef(0);
+  const searchAbortRef = useRef<AbortController | null>(null);
+
   // --- Arama ---
   const handleSearch = useCallback(async (q: string) => {
+    const seq = ++searchSeqRef.current;
+    searchAbortRef.current?.abort(); // önceki sorgunun indirmesini durdur
+    const controller = new AbortController();
+    searchAbortRef.current = controller;
     setSearching(true);
     setSearchError(null);
     try {
-      const raw = await searchTracks(q);
+      const raw = await searchTracks(q, controller.signal);
+      if (seq !== searchSeqRef.current) return; // eski cevap — üstüne yazma
       setResults(rankTracks(raw, q)); // orijinaller üstte — asıl istenen özellik
     } catch (e) {
+      if (seq !== searchSeqRef.current) return; // iptal edilen/eski sorgu
       setResults([]);
       setSearchError(e instanceof Error ? e.message : String(e));
     } finally {
-      setSearching(false);
+      // Neden: yeni bir arama başladıysa yükleme göstergesi onun kontrolünde.
+      if (seq === searchSeqRef.current) setSearching(false);
     }
   }, []);
 

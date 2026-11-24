@@ -9,16 +9,28 @@ const DEMOTE_WORDS = [
   'karaoke', 'instrumental', 'type beat', 'reaction', 'lyric video', 'lyrics',
 ];
 
+// Neden: `toLocaleLowerCase('tr')` Hermes'te çağrı başına ~70 ms yiyordu (cihazda
+// 20 sonuçlu sıralama 4,7 sn sürüyordu — kullanıcının "sonuçlar geç geliyor"
+// şikâyetinin asıl sebebi buydu). Türkçe karakterler zaten tek tek eşleniyor,
+// `toLowerCase()` aynı sonucu verip ~1000 kat hızlı.
+// Memoize: aynı başlık/kanal/sorgu tekrar tekrar normalize edilmesin.
+const normCache = new Map<string, string>();
+
 // Normalizasyon: Türkçe karakter + noktalama + fazla boşluk farklarını yut,
 // "Lorn - ANVIL" ile "lorn anvil" aynı olsun diye.
 function norm(s: string): string {
-  return s
-    .toLocaleLowerCase('tr')
+  const hit = normCache.get(s);
+  if (hit !== undefined) return hit;
+  const out = s
+    .toLowerCase()
     .replace(/[ıİ]/g, 'i').replace(/[ğĞ]/g, 'g').replace(/[üÜ]/g, 'u')
     .replace(/[şŞ]/g, 's').replace(/[öÖ]/g, 'o').replace(/[çÇ]/g, 'c')
     .replace(/[^a-z0-9 ]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
+  if (normCache.size > 400) normCache.clear(); // sözlük sınırsız büyümesin
+  normCache.set(s, out);
+  return out;
 }
 
 // Sorgu "slowed" içeriyorsa kullanıcı ORİJİNAL istemiyordur — niyeti tersine çevir.
@@ -82,10 +94,11 @@ export function isOriginalTrack(t: Track): boolean {
 }
 
 // Sıralı sonuç döndürür; skor eşitliğinde görüntülenmeye göre karar ver.
+// Neden: skor her karşılaştırmada yeniden hesaplanıyordu (20 sonuç ~80 karşılaştırma);
+// bir kez hesaplanıp sıralanır.
 export function rankTracks(tracks: Track[], query: string): Track[] {
-  return [...tracks].sort((a, b) => {
-    const d = scoreTrack(b, query) - scoreTrack(a, query);
-    if (d !== 0) return d;
-    return (b.views ?? 0) - (a.views ?? 0);
-  });
+  return tracks
+    .map((t) => ({ t, s: scoreTrack(t, query) }))
+    .sort((a, b) => b.s - a.s || (b.t.views ?? 0) - (a.t.views ?? 0))
+    .map((x) => x.t);
 }

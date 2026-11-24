@@ -83,13 +83,14 @@ export default function SearchScreen({ results, loading, error, onSearch, onPlay
     onSearch(q);
   }, [onSearch]);
 
-  // Neden: Spotify gibi yazarken de ara — 200ms debounce (önbellek var, erken ateşle); submit bekleyen zamanlayıcıyı
-  // iptal ederek aynı sorgunun iki kez gitmesini engeller.
+  // Neden: Spotify gibi yazarken de ara — 300ms debounce; submit bekleyen zamanlayıcıyı
+  // iptal ederek aynı sorgunun iki kez gitmesini engeller. Tek harf araması yapılmaz:
+  // "t" gibi sorgular sonuç vermiyor, boşuna istek ve gecikme üretiyordu.
   useEffect(() => {
     const q = query.trim();
-    if (q.length === 0) return;
+    if (q.length < 2) return;
     if (debRef.current) clearTimeout(debRef.current);
-    debRef.current = setTimeout(() => runSearch(q), 200); // cache + 3sn yarışla birleşince his belirgin hızlanır
+    debRef.current = setTimeout(() => runSearch(q), 300);
     return () => {
       if (debRef.current) clearTimeout(debRef.current);
     };

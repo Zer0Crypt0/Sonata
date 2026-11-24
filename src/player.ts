@@ -6,11 +6,16 @@ import type { AudioSource } from './types';
 let player: AudioPlayer | null = null;
 let currentUri: string | null = null;
 let audioModeReady = false;
+// GEÇİCİ tanı: status geçiş takibi (aynı durumda tekrar tekrar log basmamak için)
+let lastLoaded: boolean | null = null;
+let lastBuffering: boolean | null = null;
+let lastPlaying: boolean | null = null;
 
 // Neden: Arka planda/ekran kapalıyken müzik devam etsin + sessiz anahtar
 // sessiz modda müziği kapatmasın — müzik uygulamasının temel beklentisi.
 async function ensureAudioMode(): Promise<void> {
   if (audioModeReady) return;
+  console.log('[player] audioMode: başlıyor'); // GEÇİCİ tanı
   try {
     await setAudioModeAsync({
       playsInSilentMode: true,
@@ -18,6 +23,7 @@ async function ensureAudioMode(): Promise<void> {
       interruptionMode: 'duckOthers', // arama/gelen çağrıda ses kısılır, kesilmez
     });
     audioModeReady = true;
+    console.log('[player] audioMode: tamam'); // GEÇİCİ tanı
   } catch (e) {
     // Ses modu kurulamazsa oynatma yine çalışabilir; hata UI'a taşınır
     console.warn('[player] setAudioModeAsync başarısız:', e);
@@ -25,16 +31,35 @@ async function ensureAudioMode(): Promise<void> {
 }
 
 export async function loadAndPlay(source: AudioSource): Promise<void> {
+  console.log('[player] loadAndPlay:', source.uri.slice(0, 120)); // GEÇİCİ tanı
   await ensureAudioMode();
   if (!player) {
     player = createAudioPlayer({ uri: source.uri });
     currentUri = source.uri;
+    console.log('[player] yeni player yaratıldı'); // GEÇİCİ tanı
+    // GEÇİCİ tanı: durum geçişlerini ve native hataları Metro'ya yaz
+    player.addListener('playbackStatusUpdate', (s) => {
+      if (s.error) {
+        console.log('[player] status HATA:', s.error);
+        return;
+      }
+      if (s.isLoaded !== lastLoaded || s.isBuffering !== lastBuffering || s.playing !== lastPlaying) {
+        lastLoaded = s.isLoaded;
+        lastBuffering = s.isBuffering;
+        lastPlaying = s.playing;
+        console.log('[player] status:', JSON.stringify({
+          loaded: s.isLoaded, buffering: s.isBuffering, playing: s.playing,
+          time: s.currentTime, dur: s.duration,
+        }));
+      }
+    });
     player.play();
     return;
   }
   // replace(): mevcut oynatıcıyı yeniden kullan, kaynak değiştir (seek 0'a)
   player.replace({ uri: source.uri });
   currentUri = source.uri;
+  console.log('[player] replace tamam'); // GEÇİCİ tanı
   player.play();
 }
 
